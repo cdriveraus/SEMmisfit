@@ -322,7 +322,7 @@ simulate_iteration <- function(cond, iter){
     #         stdresiduals[, j])$p.value)
     #   }
     # }
-    dhsic.test(stdresiduals,matrix.input=T,method='gamma')$p.value
+    dhsic.test(stdresiduals,matrix.input=T)$p.value #,method='gamma'
     # combine_pvalues(pout)
   }
   
