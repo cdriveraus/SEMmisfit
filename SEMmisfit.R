@@ -76,7 +76,7 @@ combine_pvalues <- function(p_values, method = c("Fisher")) {
     combined_p <- min(1, length(p_values) * min(p_values))
     
   } else if (method %in% c('Fisher',"fisher")) { # Compute Fisher’s combined test statistic
-    X2 <- -2 * sum(log(p_values))
+    X2 <- -2 * sum(log(p_values+1e-16))  # Add small value to avoid log(0)
     df <- 2 * length(p_values)  
     combined_p <- pchisq(X2, df = df, lower.tail = FALSE)  
   }
@@ -193,29 +193,29 @@ simulate_iteration <- function(cond, iter){
   # stdresidualsrowsumsq <- attributes(fit$output$algebras$PathModel.fitfunction)$rowDist
   
   # compute conditional predictions and residuals
-    stdcondresiduals <- matrix(NA, nrow = nrow(data), ncol = nvars)
-    condpredictions <- condresiduals <- matrix(NA, nrow = nrow(data), ncol = nvars)
-    for (j in 1:nvars) {
-      # Partition covariance matrix
-      Sigma_jj <- expCov[j, j, drop=TRUE]  # Extract variance of X_j (scalar)
-      Sigma_j_rest <- expCov[j, -j, drop=FALSE]  # Extract row vector (1 × (p-1))
-      Sigma_rest_rest <- expCov[-j, -j, drop=FALSE]  # Extract covariance matrix ((p-1) × (p-1))
-
-      # Invert the covariance matrix of remaining variables
-      Sigma_inv <- solve(Sigma_rest_rest)  # Inverse of (p-1) × (p-1) matrix
-
-      # Compute conditional variance (scalar)
-      cond_var <- Sigma_jj - Sigma_j_rest %*% Sigma_inv %*% t(Sigma_j_rest)
-
-      # Compute conditional mean of X_j given all other variables
-      X_rest <- data[, colnames(data)[-j], with=FALSE]  # Extract all variables except X_j
-      condpredictions[,j] <- expMean[j] + as.vector(Sigma_j_rest %*% Sigma_inv %*% t(X_rest - expMean[-j]))  # Convert to vector
-
-      # Compute residuals
-      condresiduals[, j] <- (data[[ colnames(data)[j]]] - condpredictions[,j])
-      stdcondresiduals[, j] <- condresiduals[, j] / c(sqrt(cond_var))
-    }
-
+  stdcondresiduals <- matrix(NA, nrow = nrow(data), ncol = nvars)
+  condpredictions <- condresiduals <- matrix(NA, nrow = nrow(data), ncol = nvars)
+  for (j in 1:nvars) {
+    # Partition covariance matrix
+    Sigma_jj <- expCov[j, j, drop=TRUE]  # Extract variance of X_j (scalar)
+    Sigma_j_rest <- expCov[j, -j, drop=FALSE]  # Extract row vector (1 × (p-1))
+    Sigma_rest_rest <- expCov[-j, -j, drop=FALSE]  # Extract covariance matrix ((p-1) × (p-1))
+    
+    # Invert the covariance matrix of remaining variables
+    Sigma_inv <- solve(Sigma_rest_rest)  # Inverse of (p-1) × (p-1) matrix
+    
+    # Compute conditional variance (scalar)
+    cond_var <- Sigma_jj - Sigma_j_rest %*% Sigma_inv %*% t(Sigma_j_rest)
+    
+    # Compute conditional mean of X_j given all other variables
+    X_rest <- data[, colnames(data)[-j], with=FALSE]  # Extract all variables except X_j
+    condpredictions[,j] <- expMean[j] + as.vector(Sigma_j_rest %*% Sigma_inv %*% t(X_rest - expMean[-j]))  # Convert to vector
+    
+    # Compute residuals
+    condresiduals[, j] <- (data[[ colnames(data)[j]]] - condpredictions[,j])
+    stdcondresiduals[, j] <- condresiduals[, j] / c(sqrt(cond_var))
+  }
+  
   
   stdresiduals <- {
     # 1) Center the columns by the implied means
@@ -242,7 +242,7 @@ simulate_iteration <- function(cond, iter){
   # Perform tests of std residuals against chi-square distribution
   out$AD_p <- ad.test(stdresidualsrowsumsq, 'pchisq', df = df)$p.value
   # out$ADcondsigned_p <- ad.test(stdresidualsrowsumsqsigned, null = function(x) ecdf(generate_signed_chisq(100000,df))(x))$p.value
-
+  
   # out$ADboot_p <- {
   #   adfunc <- function(x) ad.test(apply(x,1,function(xx) sum(xx^2)), 'pchisq', df = df)$statistic
   #   observed_ad_stat <- adfunc(stdresiduals) # Compute observed AD test statistic
@@ -254,7 +254,7 @@ simulate_iteration <- function(cond, iter){
   #   # Compute empirical p-value
   #   mean(null_ad_stats >= observed_ad_stat)
   # }
-
+  
   
   
   
@@ -264,7 +264,7 @@ simulate_iteration <- function(cond, iter){
   # 
   # out$KS_p <- ks.test(stdresidualsrowsumsq, 'pchisq', df = df)$p.value
   # 
-  out$ADuni <- {
+  out$ADuni_p <- {
     adtestp <- c()
     for(vari in 1:nvars){
       adtestp <- c(adtestp, ad.test(stdresiduals[,vari], 'pnorm',0,1)$p.value)
@@ -287,7 +287,7 @@ simulate_iteration <- function(cond, iter){
   
   # out$MVnorm_p <- mvnorm.etest(residuals,nboot)$p.value
   out$MVnormE_p <- mvnorm.etest(stdresiduals,nboot)$p.value
-
+  
   out$dcov_p <- {   # Test pairwise independence among whitened residuals
     pout <- c()
     for (i in 1:(nvars-1)) {
@@ -457,23 +457,23 @@ simulate_iteration <- function(cond, iter){
   out$MIbiv_p <- {
     mi_results <- c()
     p_values <- c()
-
+    
     for (var1 in 1:(nvars-1)) {  # Iterate over first variable in pair
       for (var2 in (var1+1):nvars) {  # Iterate over second variable in pair
-
+        
         # Extract conditional residuals for the two variables
         discRes1 <- discretize(stdresiduals[, var1])
         discRes2 <- discretize(stdresiduals[, var2])
-
+        
         # Compute observed MI
         observed_mi <- mutinformation(discRes1, discRes2)
-
+        
         # Generate null distribution by permuting one variable independently
         permuted_mis <- replicate(nboot, {
           shuffled_res <- discretize(sample(stdresiduals[, var2]))
           mutinformation(discRes1, shuffled_res)
         })
-
+        
         # Compute p-value: Proportion of permuted MIs greater than or equal to observed MI
         p_values <- c(p_values, mean(permuted_mis >= observed_mi))
       }
@@ -549,7 +549,7 @@ simulate_iteration <- function(cond, iter){
   }
   
   # out$HFIunstd=compute_HFI(residuals)
-  out$HFI=compute_HFI(stdresiduals)
+  out$HFI_p=compute_HFI(stdresiduals)
   
   # Return p-values and HFI
   return(out)
@@ -594,11 +594,16 @@ registerDoSEQ()
 # ----------------------------
 # Analyze and Summarize Results
 # ----------------------------
+conditioncols <- c('condition','n','nvars','misfit_type')
 
 # Summary statistics for each condition
-outputstatnames <- colnames(simresults)[!colnames(simresults) %in% c('condition','n','misfit_type','nvars')]
+outputstatnames <- colnames(simresults)[!colnames(simresults) %in% conditioncols]
+# simresults[, All_p := apply(.SD, 1, function(x) combine_pvalues(as.numeric(x))),  by = conditioncols, .SDcols = outputstatnames]
+# simresults[, Indpndt_p := apply(.SD, 1, function(x) combine_pvalues(as.numeric(x))),  by = conditioncols, .SDcols = outputstatnames[grepl('(SEM)|(dcov)|(AD\\_p)',outputstatnames)]]
+# outputstatnames <- c(outputstatnames,'Indpndt_p')
+
 summarynames <- gsub('_p','',outputstatnames) #remove _p from names
-summary_results <- simresults[, lapply(.SD, function(x) round(mean(x <.05, na.rm = TRUE), 3)), by = .(condition, n, nvars, misfit_type), .SDcols = outputstatnames]
+summary_results <- simresults[, lapply(.SD, function(x) round(mean(x <.05, na.rm = TRUE), 3)), by = conditioncols, .SDcols = outputstatnames]
 
 # Print summary results
 print(summary_results)
@@ -625,7 +630,7 @@ summary_long[,misfit_metric:=gsub('_p','',misfit_metric)]
 summary_long[,n:=factor(n)]
 # Plot misfit rates for SEM chi-square test, Raw KS test, and HFI across conditions
 p <- ggplot(
-  summary_long[grepl('(MV)|(HFI)|(HSIC)|(SEM)|(dcov)|(AD)|(MI)',misfit_metric),],#[!misfit_metric %in% c('KS','CVM','Levene'),],
+  summary_long,#[grepl('(MV)|(HFI)|(HSIC)|(SEM)|(dcov)|(AD)|(MI)',misfit_metric),],#[!misfit_metric %in% c('KS','CVM','Levene'),],
   aes(x = misfit_metric, y = misfit_rate, fill = misfit_metric)) +
   geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
   facet_grid(rows = vars(Misfit),cols=vars(interaction(nvars,n)),labeller = label_both) +
