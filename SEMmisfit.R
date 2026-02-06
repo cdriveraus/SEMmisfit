@@ -17,7 +17,8 @@ required_packages <- c(
   "goftest", # For goodness-of-fit tests
   'energy', # For mvnorm.etest
   'infotheo', # For mutinformation
-  'dHSIC' # For distance‐based Hilbert–Schmidt independence criterion
+  'dHSIC', # For distance‐based Hilbert–Schmidt independence criterion
+  'kableExtra' # For latex table formatting
 )
 
 installed_packages <- rownames(installed.packages())
@@ -607,6 +608,26 @@ summary_results <- simresults[, lapply(.SD, function(x) round(mean(x <.05, na.rm
 
 # Print summary results
 print(summary_results)
+
+#output to latex table
+table <- as.data.frame(summary_results)[,-1] #remove condition column
+colnames(table) <- gsub('_p','',colnames(table),fixed=T) #remove _p from names
+colnames(table)[colnames(table) %in% 'misfit_type'] <- 'Misfit'
+colnames(table)[colnames(table) %in% 'n'] <- 'Subjects'
+colnames(table)[colnames(table) %in% 'nvars'] <- 'Variables'
+sink('simtable.tex')
+kableExtra::kable(
+  table,
+  format = "latex",
+  linesep = "",  # removes extra spacing/lines between rows
+  booktabs = TRUE,
+  # caption = "Simulation Results for SEM Misfit Tests",
+  # label = "tab:sem_misfit_summary",
+  digits = 2
+) %>%
+  row_spec(0, bold=TRUE) %>%
+  kable_styling(latex_options = c("striped"),position='left')
+sink() #close the latex table sink
 
 ## Optionally, save the results to CSV files
 # fwrite(simresults, "SEM_Simulation_Results.csv")
