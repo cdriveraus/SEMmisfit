@@ -10,7 +10,8 @@ required_packages <- c(
   "MASS", # For mvrnorm function
   "OpenMx", # For SEM modeling
   "data.table", # For data manipulation
-  "foreach", # For parallel processing
+  # "foreach", # For parallel processing
+  'doSNOW', #for progress bar
   "doParallel", # For parallel processing
   "ggplot2", # For data visualization
   "moments", # For skewness and kurtosis
@@ -18,7 +19,8 @@ required_packages <- c(
   'energy', # For mvnorm.etest
   'infotheo', # For mutinformation
   'dHSIC', # For distance‐based Hilbert–Schmidt independence criterion
-  'kableExtra' # For latex table formatting
+  'kableExtra', # For latex table formatting
+  'overlapping' # For distribution overlap permutation tests
 )
 
 installed_packages <- rownames(installed.packages())
@@ -33,17 +35,17 @@ for(pkg in required_packages){ # Install required packages if not already instal
 
 
 # Detect the number of available cores
-num_cores <- detectCores() - 1  # Reserve one core for the OS
+num_cores <- 12#detectCores() - 4  # Reserve cores for the OS
 
 # Register parallel backend
 cl <- makeCluster(num_cores)
-registerDoParallel(cl)
+registerDoSNOW(cl)
 
 # ----------------------------
 #  Define Simulation Parameters
 # ----------------------------
 
-niter <- 1000 # Number of iterations per condition
+niter <- 100 # Number of iterations per condition
 nboot <- 1000 # Number of bootstrap samples for permutation tests
 
 simconditions <- data.table(expand.grid(
@@ -62,7 +64,7 @@ generate_signed_chisq <- function(n, df = 3) {
 }
 
 #function to combine multiple p values into one
-combine_pvalues <- function(p_values, method = c("Fisher")) {
+combine_pvalues <- function(p_values, method = c("BF")) {
   if(any(is.na(p_values))){
     warning('NA values detected in p-values')
     p_values <- p_values[!is.na(p_values)]
@@ -99,7 +101,7 @@ discretize_fd <- function(x) {
 simulate_iteration <- function(cond, iter){
   
   # Extract condition parameters
-  #cond<-list(n=500, nvars=4, misfit_type='none') ##run from this line to diagnose simulation
+  #cond<-list(n=500, nvars=4, misfit_type='classical') ##run from this line to diagnose simulation
   n <- cond$n
   misfit_type <- cond$misfit_type
   nvars <- cond$nvars
@@ -314,17 +316,8 @@ simulate_iteration <- function(cond, iter){
   #   combine_pvalues(pout)
   # }
   
-  out$dHSIC_p <- {   # Test pairwise independence among columns
-    # pout <- c()
-    # for (i in 1:(nvars-1)) {
-    #   for (j in (i+1):nvars) {
-    #     pout <- c(pout,
-    #       dhsic.test(stdresiduals[, i], 
-    #         stdresiduals[, j])$p.value)
-    #   }
-    # }
-    dhsic.test(stdresiduals,matrix.input=T)$p.value #,method='gamma'
-    # combine_pvalues(pout)
+  out$dHSIC_p <- {   # Test independence among columns
+    dhsic.test(stdresiduals,matrix.input=T, B=nboot)$p.value #,method='gamma'
   }
   
   out$dHSICbiv_p <- {   # Test pairwise independence among columns
@@ -338,6 +331,35 @@ simulate_iteration <- function(cond, iter){
     }
     combine_pvalues(pout)
   }
+  
+  # # Overlapping permutation test: compare distribution of row sum of squared
+  # # standardized residuals against expected chi-square distribution
+  # out$OVL_p <- {
+  #   # Create list for overlapping comparison with reference
+  #   x_list <- data.frame(stdresidualsrowsumsq,rchisq(n, df = df))
+  #   # Perform permutation test on overlapping index (H0: distributions are identical, eta=1)
+  #   perm_result <- tryCatch({
+  #     perm.test(x_list, B = nboot, return.distribution = FALSE)
+  #   }, error = function(e) {
+  #     list(pval = NA)
+  #   })
+  #   perm_result$pval
+  # }
+  # 
+  # # Univariate overlapping test: compare each standardized residual against N(0,1)
+  # out$OVLuni_p <- {
+  #   pout <- c()
+  #   for (vari in 1:nvars) {
+  #     x_list <- list(observed = stdresiduals[, vari], reference = rnorm(n, 0, 1))
+  #     perm_result <- tryCatch({
+  #       perm.test(x_list, B = nboot, return.distribution = FALSE)
+  #     }, error = function(e) {
+  #       list(pval = NA)
+  #     })
+  #     pout <- c(pout, perm_result$pval)
+  #   }
+  #   combine_pvalues(pout)
+  # }
   
   
   # # Levene’s test for heteroscedasticity in residual variance
@@ -563,17 +585,27 @@ simulate_iteration <- function(cond, iter){
 # Use foreach to iterate over each simulation condition
 # Outer loop iterates over conditions
 # Inner loop iterates over iterations within each condition
-simresultslist <- foreach(cond_idx = 1:nrow(simconditions), #.combine = rbind, 
-  .packages = c("OpenMx", "MASS", "data.table", "moments", "goftest",'energy', 'infotheo','dHSIC')) %:%
-  foreach(iter = 1:niter, .packages = c("OpenMx", "MASS", "data.table", "moments")) %dopar% {
+nTasks <- nrow(simconditions) * niter
+pb <- txtProgressBar(min = 0, max = nTasks, style = 3)
+
+progress <- function(n) setTxtProgressBar(pb, n)
+opts <- list(progress = progress)
+
+simresultslist <- foreach(
+  cond_idx = 1:nrow(simconditions),
+  .packages = c("OpenMx", "MASS", "data.table", "moments", "goftest", "energy", "infotheo", "dHSIC", "overlapping"),
+  .options.snow = opts
+) %:%
+  foreach(
+    iter = 1:niter,
+    .packages = c("OpenMx", "MASS", "data.table", "moments", "overlapping")
+  ) %dopar% {
     
-    # Extract current condition
     cond <- simconditions[cond_idx]
-    
-    # Perform simulation iteration
-    data.table(condition = cond_idx,
+    data.table(
+      condition = cond_idx,
       n = cond$n,
-      nvars=cond$nvars,
+      nvars = cond$nvars,
       misfit_type = cond$misfit_type,
       simulate_iteration(cond, iter)
     )
@@ -589,6 +621,7 @@ if(any(outlength != max(outlength))){
 simresults <- rbindlist(simresultslist)
 
 # Shut down the parallel cluster
+close(pb)
 stopCluster(cl)
 registerDoSEQ()
 
