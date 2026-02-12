@@ -35,7 +35,7 @@ for(pkg in required_packages){ # Install required packages if not already instal
 
 
 # Detect the number of available cores
-num_cores <- 12#detectCores() - 4  # Reserve cores for the OS
+num_cores <- 30#detectCores() - 4  # Reserve cores for the OS
 
 # Register parallel backend
 cl <- makeCluster(num_cores)
@@ -45,7 +45,7 @@ registerDoSNOW(cl)
 #  Define Simulation Parameters
 # ----------------------------
 
-niter <- 100 # Number of iterations per condition
+niter <- 1000 # Number of iterations per condition
 nboot <- 1000 # Number of bootstrap samples for permutation tests
 
 simconditions <- data.table(expand.grid(
