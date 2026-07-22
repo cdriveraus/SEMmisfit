@@ -33,7 +33,12 @@ set.seed(20260710)
 
 niter <- 500
 nperm <- 199
-ncores <- max(1, min(10, parallel::detectCores(logical = TRUE) - 2))
+ncores <- max(1, min(20, parallel::detectCores(logical = TRUE) - 2))
+
+
+# Register parallel backend
+cl <- makeCluster(ncores)
+registerDoSNOW(cl)
 
 simconditions <- data.table(expand.grid(
   n = c(100, 500),
