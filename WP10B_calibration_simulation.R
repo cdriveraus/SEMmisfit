@@ -29,6 +29,9 @@ make_data <- function(n,p,condition) {
  as.data.frame(x)
 }
 targets <- function(condition) if(condition %in% c("nonlinear_conditional_mean","conditional_heteroscedasticity","higher_order_only_dependence")) list(variable="V3",pairs=c("V3|V1","V3|V2")) else if(condition=="covariance_misspecification") list(variable=NA_character_,pairs=c("V1|V4","V4|V1")) else list(variable=NA_character_,pairs=character())
+format_elapsed <- function(seconds) {
+ seconds <- max(0, round(seconds)); sprintf("%02d:%02d:%02d", seconds %/% 3600L, (seconds %% 3600L) %/% 60L, seconds %% 60L)
+}
 run_one <- function(row,i) {
  set.seed(20260721L+as.integer(i+10000*match(row$cell_id,design$cell_id))); e<-fit_model(make_data(row$n,row$nvars,row$condition)); target<-targets(row$condition)
  rbindlist(lapply(c("conditional_permutation","parametric_fixed","parametric_refit"),function(mode){
@@ -43,7 +46,16 @@ run_cell <- function(row) {
  cl<-parallel::makeCluster(ncores);on.exit(parallel::stopCluster(cl),add=TRUE)
  parallel::clusterEvalQ(cl,{library(data.table);library(MASS);library(Matrix);library(energy);library(goftest);library(dHSIC);source("sem_misfit_api_prototype.R")})
  parallel::clusterExport(cl,c("B","alpha","design","conditions","fit_model","make_data","targets","run_one","%||%"),envir=environment());parallel::clusterSetRNGStream(cl,20260721L+match(row$cell_id,design$cell_id))
- ans<-rbindlist(parallel::parLapplyLB(cl,seq_len(row$outer_reps),function(i)run_one(row,i)),fill=TRUE);saveRDS(ans,path);ans
+ progress_every <- max(ncores, ceiling(row$outer_reps / 20L))
+ batches <- split(seq_len(row$outer_reps), ceiling(seq_len(row$outer_reps) / progress_every))
+ cell_started <- proc.time()[["elapsed"]]; completed <- 0L; pieces <- vector("list", length(batches))
+ for (b in seq_along(batches)) {
+   pieces[[b]] <- parallel::parLapplyLB(cl, batches[[b]], function(i) run_one(row, i))
+   completed <- completed + length(batches[[b]]); elapsed <- proc.time()[["elapsed"]] - cell_started
+   remaining <- if (completed) elapsed / completed * (row$outer_reps - completed) else NA_real_
+   message(sprintf("%s: %d/%d (%.1f%%), elapsed %s, estimated remaining %s", row$cell_id, completed, row$outer_reps, 100 * completed / row$outer_reps, format_elapsed(elapsed), format_elapsed(remaining))); flush.console()
+ }
+ ans<-rbindlist(unlist(pieces,recursive=FALSE),fill=TRUE);saveRDS(ans,path);ans
 }
 started<-Sys.time();simresults<-rbindlist(lapply(seq_len(nrow(design)),function(i)run_cell(design[i])),fill=TRUE);save(simresults,design,B,ncores,file="simresults.rda")
 wilson<-function(k,n){z<-qnorm(.975);p<-k/n;d<-1+z^2/n;c((p+z^2/(2*n)-z*sqrt(p*(1-p)/n+z^2/(4*n^2)))/d,(p+z^2/(2*n)+z*sqrt(p*(1-p)/n+z^2/(4*n^2)))/d)}
