@@ -1,0 +1,2 @@
+"comparison","chisq_difference","df_difference","p_value","linear_aic","quadratic_aic","delta_aic","quadratic_estimate","quadratic_se","quadratic_z","quadratic_p"
+"linear versus quadratic age path",196.9376840922,1,9.73022733893867e-45,2091.18564732798,1896.24796323573,-194.937684092249,-0.000524027778322806,3.67302170288252e-05,-14.2669393407493,0

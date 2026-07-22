@@ -1,0 +1,4 @@
+"var1","var2","statistic","p_value","method","status","p_adjusted"
+"logwage","age_decade",16.4253515007602,0.001,"energy::dcov.test","ok",0.003
+"logwage","year_c",7.23398633915539,0.001,"energy::dcov.test","ok",0.003
+"age_decade","year_c",3.74225928364257,0.015,"energy::dcov.test","ok",0.015

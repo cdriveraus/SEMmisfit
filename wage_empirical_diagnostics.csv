@@ -1,0 +1,7 @@
+"test","target","statistic","p_value","method","status"
+"sem_fit","mean_covariance",2.66453525910038e-12,NA,"source_fit_measure","ok"
+"case_distance","case_level_distance",16.4930646312232,1.99999999894729e-07,"Anderson-Darling chi-square reference","naive_p_value"
+"marginal_distribution","univariate_residual_distribution",9.25425645256519,5.99999999684186e-07,"minimum adjusted variable-level p-value; holm","naive_p_value"
+"global_distribution","joint_residual_distribution",15.1950906347986,0,"energy::mvnorm.etest against multivariate normality","naive_or_internal_resampling"
+"global_independence","mutual_residual_independence",3.06375867885614,0.001,"dHSIC permutation","ok"
+"pairwise_independence","pairwise_residual_independence",16.4253515007602,0.003,"minimum adjusted pairwise p-value","ok"

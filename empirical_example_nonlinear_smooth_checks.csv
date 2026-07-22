@@ -1,0 +1,4 @@
+"outcome","predictor","edf","p","candidate"
+"logwage","age",4.42301011924449,0,"WageLogPath"
+"BPSysAve","Age",4.55969129983607,0,"NHANESBpPath"
+"BPSysAve","BMI",1.01067528091527,0,"NHANESBpPath"

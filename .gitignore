@@ -1,0 +1,35 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+# RStudio, R sessions, and run logs
+*.Rproj.user/
+*.Rhistory
+*.RData
+*.Ruserdata
+*.log
+
+# LaTeX build intermediates (PDFs remain reviewable artifacts)
+*.aux
+*.bbl
+*.bcf
+*.blg
+*.fdb_latexmk
+*.fls
+*.out
+*.run.xml
+
+# Local data downloads and resumable WP10B run state
+external_data/
+hbn_release11_datadict/
+hbn_release11_datadict.zip
+wp10b_checkpoints/
+wp10b_run.log
+wp10b_error.log
+wp10b_run_metadata.txt
+wp10b_calibration_summary.csv
+
+# WP10B smoke-run outputs: the full validated run will replace these.
+simresults.rda
+simtable.tex

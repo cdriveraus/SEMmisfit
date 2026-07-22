@@ -1,0 +1,4 @@
+"variable","statistic","p_value","method","status","p_adjusted"
+"year_c",52.7218820647754,1.99999999894729e-07,"Anderson-Darling standard normal reference","naive_p_value",5.99999999684186e-07
+"logwage",11.8576419053607,2.359228669091e-07,"Anderson-Darling standard normal reference","naive_p_value",5.99999999684186e-07
+"age_decade",9.25425645256519,2.31614569129457e-05,"Anderson-Darling standard normal reference","naive_p_value",2.31614569129457e-05

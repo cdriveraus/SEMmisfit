@@ -1,0 +1,2 @@
+"dataset","n","variables","model","chisq","df","pvalue","cfi","rmsea","srmr","global_distribution_p","global_independence_p","pairwise_min_padjusted","marginal_min_padjusted","row_distance_p"
+"ISLR2::Wage",3000,"age_decade, year_c, logwage","logwage ~ age_decade + year_c; age_decade ~~ year_c",2.66453525910038e-12,0,NA,0.999999999999984,0,3.36244701214024e-09,0,0.001,0.003,5.99999999684186e-07,1.99999999894729e-07
