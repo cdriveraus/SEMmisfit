@@ -1,4 +1,5 @@
 # Full WP10B run; checkpoints let `Rscript WP10B_calibration_simulation.R` resume safely.
+.libPaths(c(Sys.getenv("R_LIBS_USER"), .libPaths()))
 library(data.table); library(MASS); library(Matrix); library(ggplot2); library(kableExtra)
 source("sem_misfit_api_prototype.R")
 set.seed(20260721)
@@ -42,9 +43,15 @@ run_one <- function(row,i) {
  }))[,`:=`(n=row$n,nvars=row$nvars,condition=row$condition,iter=i)]
 }
 run_cell <- function(row) {
- path<-file.path(checkpoint_dir,paste0(row$cell_id,".rds")); if(file.exists(path)) { cached<-readRDS(path); if(nrow(cached)==3L*row$outer_reps)return(cached) }; message("Running ",row$cell_id,"; outer replications: ",row$outer_reps)
+ path <- file.path(checkpoint_dir, paste0(row$cell_id, ".rds"))
+ if (file.exists(path)) {
+   cached <- tryCatch(readRDS(path), error = function(e) e)
+   if (!inherits(cached, "error") && nrow(cached) == 3L * row$outer_reps) return(cached)
+   message("Ignoring incomplete or unreadable checkpoint for ", row$cell_id, "; recomputing this cell.")
+ }
+ message("Running ",row$cell_id,"; outer replications: ",row$outer_reps)
  cl<-parallel::makeCluster(ncores);on.exit(parallel::stopCluster(cl),add=TRUE)
- parallel::clusterEvalQ(cl,{library(data.table);library(MASS);library(Matrix);library(energy);library(goftest);library(dHSIC);source("sem_misfit_api_prototype.R")})
+ parallel::clusterEvalQ(cl,{.libPaths(c(Sys.getenv("R_LIBS_USER"), .libPaths()));library(data.table);library(MASS);library(Matrix);library(energy);library(goftest);library(dHSIC);source("sem_misfit_api_prototype.R")})
  parallel::clusterExport(cl,c("B","alpha","design","conditions","fit_model","make_data","targets","run_one","%||%"),envir=environment());parallel::clusterSetRNGStream(cl,20260721L+match(row$cell_id,design$cell_id))
  progress_every <- max(ncores, ceiling(row$outer_reps / 20L))
  batches <- split(seq_len(row$outer_reps), ceiling(seq_len(row$outer_reps) / progress_every))
@@ -55,7 +62,12 @@ run_cell <- function(row) {
    remaining <- if (completed) elapsed / completed * (row$outer_reps - completed) else NA_real_
    message(sprintf("%s: %d/%d (%.1f%%), elapsed %s, estimated remaining %s", row$cell_id, completed, row$outer_reps, 100 * completed / row$outer_reps, format_elapsed(elapsed), format_elapsed(remaining))); flush.console()
  }
- ans<-rbindlist(unlist(pieces,recursive=FALSE),fill=TRUE);saveRDS(ans,path);ans
+ ans <- rbindlist(unlist(pieces, recursive = FALSE), fill = TRUE)
+ temporary_path <- tempfile(pattern = paste0(row$cell_id, "-"), tmpdir = checkpoint_dir, fileext = ".rds")
+ saveRDS(ans, temporary_path)
+ if (!file.copy(temporary_path, path, overwrite = TRUE)) stop("Could not write checkpoint: ", path, call. = FALSE)
+ unlink(temporary_path)
+ ans
 }
 started<-Sys.time();simresults<-rbindlist(lapply(seq_len(nrow(design)),function(i)run_cell(design[i])),fill=TRUE);save(simresults,design,B,ncores,file="simresults.rda")
 wilson<-function(k,n){z<-qnorm(.975);p<-k/n;d<-1+z^2/n;c((p+z^2/(2*n)-z*sqrt(p*(1-p)/n+z^2/(4*n^2)))/d,(p+z^2/(2*n)+z*sqrt(p*(1-p)/n+z^2/(4*n^2)))/d)}
