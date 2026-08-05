@@ -524,6 +524,30 @@ Unresolved issues for later packages:
 
 ## Calibration Position
 
+## WP10B computation revision (2026-08-05)
+
+WP10B remains incomplete. The original `SEMmisfit.R` simulation did not use
+parametric refitting: it fitted each outer dataset once and used `nperm = 199`
+for residual permutation/resampling tests. The first WP10B design added all
+three calibration modes with `B = 999` in every cell, which proved too costly.
+
+The active `WP10B_calibration_simulation.R` design now uses:
+
+- `parametric_refit` for every condition as the primary estimation-aware
+  inference method;
+- `conditional_permutation` and `parametric_fixed` only for the Gaussian null
+  and the predeclared covariance-misspecification, nonlinear-conditional-mean,
+  and conditional-heteroscedasticity conditions;
+- `B = 499` for every active calibration path;
+- 1,000 outer replications only for the Gaussian null and 500 for every other
+  condition.
+
+This reduces the outer mode-by-condition analyses from 72,000 to 40,000 and,
+with the lower bootstrap count, reduces the approximate bootstrap-statistic
+workload by about 72%. The simulation-spec label
+`wp10b_refit_primary_B499_gaussian1000_v2` invalidates earlier checkpoints,
+which must be recomputed rather than mixed with the revised results.
+
 ## Completed: `work_packages/WP10A_bootstrap_calibration.md`
 
 Date: 2026-07-21.
