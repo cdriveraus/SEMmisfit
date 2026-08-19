@@ -544,9 +544,28 @@ The active `WP10B_calibration_simulation.R` design now uses:
 
 This reduces the outer mode-by-condition analyses from 72,000 to 40,000 and,
 with the lower bootstrap count, reduces the approximate bootstrap-statistic
-workload by about 72%. The simulation-spec label
-`wp10b_refit_primary_B499_gaussian1000_v2` invalidates earlier checkpoints,
-which must be recomputed rather than mixed with the revised results.
+workload by about 72%.
+
+The external v2 run completed with 40,000 rows, `B = 499`, and no recorded
+iteration/bootstrapping failures. It is not a valid final WP10B result set:
+the script retained only an aggregate `rejection` flag, calculated by taking
+the union of raw conditional-permutation p-values across all variable, pair,
+and scale tests. This inflated conditional-permutation null rejection; the
+union across the three otherwise family-wise bootstrap-calibrated families is
+also not an omnibus .05 test. The old result files remain historical only and
+must not be used in manuscript prose. Its copied `wp10b_run_metadata.txt` was
+also stale (a prior smoke run) and does not describe the completed v2 artifact.
+
+The active v3 runner (`wp10b_refit_primary_B499_familywise_v3`) saves distinct
+variable-family, directional-pair-family, and conditional-scale-family
+rejection indicators. It uses `p_adjusted` for conditional permutation and
+the corresponding max-statistic bootstrap p-values for fixed/refit modes.
+It reports the union across families only as descriptive and scores
+heteroscedasticity localization with the conditional-scale family. v3 writes
+to `wp10b_results_wp10b_refit_primary_B499_familywise_v3/`, including a
+separate checkpoint directory, so it cannot overwrite the invalid v2 files.
+The full v3 rerun is required because v2 discarded the individual family
+outcomes needed for corrected summaries.
 
 ## Completed: `work_packages/WP10A_bootstrap_calibration.md`
 

@@ -2,12 +2,16 @@
 .libPaths(c(Sys.getenv("R_LIBS_USER"), .libPaths()))
 library(data.table); library(MASS); library(Matrix); library(ggplot2); library(kableExtra)
 source("sem_misfit_api_prototype.R")
-set.seed(20260721)
-B <- 499L; ncores <- 10L; alpha <- .05; checkpoint_dir <- "wp10b_checkpoints"
-dir.create(checkpoint_dir, showWarnings = FALSE)
+seed_master <- 20260721L
+set.seed(seed_master)
+B <- 499L; ncores <- 10L; alpha <- .05
 conditions <- c("gaussian_null", "marginal_skewness_only", "heavy_tail_only", "covariance_misspecification", "nonlinear_conditional_mean", "conditional_heteroscedasticity", "subgroup_heterogeneity", "rotated_independent_nongaussian", "higher_order_only_dependence")
 comparison_conditions <- c("gaussian_null", "covariance_misspecification", "nonlinear_conditional_mean", "conditional_heteroscedasticity")
-simulation_spec <- "wp10b_refit_primary_B499_gaussian1000_v2"
+simulation_spec <- "wp10b_refit_primary_B499_familywise_v3"
+output_dir <- paste0("wp10b_results_", simulation_spec)
+if (identical(Sys.getenv("WP10B_SMOKE"), "1")) output_dir <- paste0(output_dir, "_smoke")
+checkpoint_dir <- file.path(output_dir, "checkpoints")
+dir.create(checkpoint_dir, recursive = TRUE, showWarnings = FALSE)
 design <- CJ(n=c(100L,500L), nvars=c(4L,8L), condition=conditions)
 design[, outer_reps := ifelse(condition == "gaussian_null", 1000L, 500L)]
 design[, cell_id := sprintf("n%d_p%d_%s",n,nvars,condition)]
@@ -30,20 +34,27 @@ make_data <- function(n,p,condition) {
  if(condition=="rotated_independent_nongaussian") {u<-apply(matrix(rexp(n*p)-1,n,p),2,scale);x<-u%*%qr.Q(qr(matrix(rnorm(p*p),p)));colnames(x)<-paste0("V",seq_len(p))}
  as.data.frame(x)
 }
-targets <- function(condition) if(condition %in% c("nonlinear_conditional_mean","conditional_heteroscedasticity","higher_order_only_dependence")) list(variable="V3",pairs=c("V3|V1","V3|V2")) else if(condition=="covariance_misspecification") list(variable=NA_character_,pairs=c("V1|V4","V4|V1")) else list(variable=NA_character_,pairs=character())
+targets <- function(condition) {
+ if(condition %in% c("nonlinear_conditional_mean", "higher_order_only_dependence")) return(list(variable="V3", pairs=c("V3|V1", "V3|V2"), scale=NA_character_))
+ if(condition == "conditional_heteroscedasticity") return(list(variable=NA_character_, pairs=character(), scale="V3"))
+ if(condition == "covariance_misspecification") return(list(variable=NA_character_, pairs=c("V1|V4", "V4|V1"), scale=NA_character_))
+ list(variable=NA_character_, pairs=character(), scale=NA_character_)
+}
 calibration_modes <- function(condition) {
   if (condition %in% comparison_conditions) c("conditional_permutation", "parametric_fixed", "parametric_refit") else "parametric_refit"
 }
 format_elapsed <- function(seconds) {
  seconds <- max(0, round(seconds)); sprintf("%02d:%02d:%02d", seconds %/% 3600L, (seconds %% 3600L) %/% 60L, seconds %% 60L)
 }
+family_reject <- function(tab) any(!is.na(tab$p_adjusted) & tab$p_adjusted <= alpha)
 run_one <- function(row,i) {
- set.seed(20260721L+as.integer(i+10000*match(row$cell_id,design$cell_id))); e<-fit_model(make_data(row$n,row$nvars,row$condition)); target<-targets(row$condition)
+ set.seed(seed_master+as.integer(i+10000*match(row$cell_id,design$cell_id))); e<-fit_model(make_data(row$n,row$nvars,row$condition)); target<-targets(row$condition)
  out <- rbindlist(lapply(calibration_modes(row$condition),function(mode){
   started<-proc.time()[["elapsed"]]; z<-tryCatch(sem_misfit(e,tests=c("conditional_variables","conditional_pairs","conditional_scale"),calibration=mode,B=B,seed=sample.int(.Machine$integer.max,1)),error=function(err)err)
-  if(inherits(z,"error")) return(data.table(calibration=mode,rejection=NA,variable_correct=NA,pair_correct=NA,runtime=proc.time()[["elapsed"]]-started,success=0L,failure_rate=1,error=conditionMessage(z)))
-  cv<-z$conditional_variables;cp<-z$conditional_pairs; keys<-paste(cp$residual_variable,cp$predictor,sep="|")
-  data.table(calibration=mode,rejection=any(c(cv$p_value,cp$p_value,z$conditional_scale$p_value)<=alpha,na.rm=TRUE),variable_correct=if(is.na(target$variable)) NA else any(cv$variable==target$variable&cv$p_value<=alpha),pair_correct=if(!length(target$pairs)) NA else any(keys%in%target$pairs&cp$p_value<=alpha),runtime=z$calibration_details$runtime_seconds%||%(proc.time()[["elapsed"]]-started),success=z$calibration_details$B_successful%||%NA_integer_,failure_rate=if(is.null(z$calibration_details))NA_real_ else 1-z$calibration_details$B_successful/z$calibration_details$B_requested,error=NA_character_)
+  if(inherits(z,"error")) return(data.table(calibration=mode,variable_family_reject=NA,pair_family_reject=NA,scale_family_reject=NA,any_family_signal=NA,variable_correct=NA,pair_correct=NA,scale_correct=NA,runtime=proc.time()[["elapsed"]]-started,success=0L,failure_rate=1,error=conditionMessage(z)))
+  cv<-z$conditional_variables; cp<-z$conditional_pairs; cs<-z$conditional_scale; keys<-paste(cp$residual_variable,cp$predictor,sep="|")
+  variable_reject <- family_reject(cv); pair_reject <- family_reject(cp); scale_reject <- family_reject(cs)
+  data.table(calibration=mode,variable_family_reject=variable_reject,pair_family_reject=pair_reject,scale_family_reject=scale_reject,any_family_signal=any(variable_reject,pair_reject,scale_reject),variable_correct=if(is.na(target$variable)) NA else any(cv$variable==target$variable & !is.na(cv$p_adjusted) & cv$p_adjusted<=alpha),pair_correct=if(!length(target$pairs)) NA else any(keys%in%target$pairs & !is.na(cp$p_adjusted) & cp$p_adjusted<=alpha),scale_correct=if(is.na(target$scale)) NA else any(cs$variable==target$scale & !is.na(cs$p_adjusted) & cs$p_adjusted<=alpha),runtime=z$calibration_details$runtime_seconds%||%(proc.time()[["elapsed"]]-started),success=z$calibration_details$B_successful%||%NA_integer_,failure_rate=if(is.null(z$calibration_details))NA_real_ else 1-z$calibration_details$B_successful/z$calibration_details$B_requested,error=NA_character_)
  }))
  out[, `:=`(n = row$n, nvars = row$nvars, condition = row$condition, iter = i, simulation_spec = simulation_spec)]
  out
@@ -59,7 +70,7 @@ run_cell <- function(row) {
  message("Running ",row$cell_id,"; outer replications: ",row$outer_reps)
  cl<-parallel::makeCluster(ncores);on.exit(parallel::stopCluster(cl),add=TRUE)
  parallel::clusterEvalQ(cl,{.libPaths(c(Sys.getenv("R_LIBS_USER"), .libPaths()));library(data.table);library(MASS);library(Matrix);library(energy);library(goftest);library(dHSIC);source("sem_misfit_api_prototype.R")})
- parallel::clusterExport(cl,c("B","alpha","design","conditions","comparison_conditions","simulation_spec","fit_model","make_data","targets","calibration_modes","run_one","%||%"),envir=environment());parallel::clusterSetRNGStream(cl,20260721L+match(row$cell_id,design$cell_id))
+ parallel::clusterExport(cl,c("seed_master","B","alpha","design","conditions","comparison_conditions","simulation_spec","fit_model","make_data","targets","calibration_modes","family_reject","run_one","%||%"),envir=environment());parallel::clusterSetRNGStream(cl,seed_master+match(row$cell_id,design$cell_id))
  progress_every <- max(ncores, ceiling(row$outer_reps / 20L))
  batches <- split(seq_len(row$outer_reps), ceiling(seq_len(row$outer_reps) / progress_every))
  cell_started <- proc.time()[["elapsed"]]; completed <- 0L; pieces <- vector("list", length(batches))
@@ -76,9 +87,10 @@ run_cell <- function(row) {
  unlink(temporary_path)
  ans
 }
-started<-Sys.time();simresults<-rbindlist(lapply(seq_len(nrow(design)),function(i)run_cell(design[i])),fill=TRUE);save(simresults,design,B,ncores,file="simresults.rda")
-wilson<-function(k,n){z<-qnorm(.975);p<-k/n;d<-1+z^2/n;c((p+z^2/(2*n)-z*sqrt(p*(1-p)/n+z^2/(4*n^2)))/d,(p+z^2/(2*n)+z*sqrt(p*(1-p)/n+z^2/(4*n^2)))/d)}
-summary<-simresults[,.(rejection_rate=mean(rejection,na.rm=TRUE),mc_low=wilson(sum(rejection,na.rm=TRUE),sum(!is.na(rejection)))[1],mc_high=wilson(sum(rejection,na.rm=TRUE),sum(!is.na(rejection)))[2],median_runtime=median(runtime,na.rm=TRUE),bootstrap_failure_rate=mean(failure_rate,na.rm=TRUE),variable_accuracy=mean(variable_correct,na.rm=TRUE),pair_accuracy=mean(pair_correct,na.rm=TRUE),unavailable=sum(!is.na(error))),by=.(n,nvars,condition,calibration)]
-fwrite(summary,"wp10b_calibration_summary.csv");sink("simtable.tex");print(kableExtra::kable(as.data.frame(summary),format="latex",booktabs=TRUE,digits=3));sink()
-p<-ggplot(summary,aes(condition,rejection_rate,fill=calibration))+geom_col(position="dodge")+geom_errorbar(aes(ymin=mc_low,ymax=mc_high),position=position_dodge(.9),width=.2)+facet_grid(nvars~n,labeller=label_both)+coord_cartesian(ylim=c(0,1))+theme_bw(base_size=9)+theme(axis.text.x=element_text(angle=35,hjust=1))+labs(x=NULL,y="Rejection rate (95% binomial Monte Carlo interval)",fill="Calibration")
-ggsave("sim.pdf",p,width=13,height=9);writeLines(c(paste("started",started),paste("finished",Sys.time()),paste("simulation_spec",simulation_spec),paste("B",B),paste("cores",ncores),paste("comparison conditions",paste(comparison_conditions,collapse=", ")),"checkpoint directory: wp10b_checkpoints"),"wp10b_run_metadata.txt")
+started<-Sys.time();simresults<-rbindlist(lapply(seq_len(nrow(design)),function(i)run_cell(design[i])),fill=TRUE);save(simresults,design,B,ncores,seed_master,simulation_spec,file=file.path(output_dir,"simresults.rda"))
+wilson<-function(k,n){if(!n)return(c(NA_real_,NA_real_));z<-qnorm(.975);p<-k/n;d<-1+z^2/n;c((p+z^2/(2*n)-z*sqrt(p*(1-p)/n+z^2/(4*n^2)))/d,(p+z^2/(2*n)+z*sqrt(p*(1-p)/n+z^2/(4*n^2)))/d)}
+family_columns <- c(variable_family_reject="variable_family",pair_family_reject="directional_pair_family",scale_family_reject="conditional_scale_family",any_family_signal="any_family_signal_descriptive")
+summary<-rbindlist(lapply(names(family_columns),function(column)simresults[,.(diagnostic_family=family_columns[[column]],rejection_rate=mean(get(column),na.rm=TRUE),mc_low=wilson(sum(get(column),na.rm=TRUE),sum(!is.na(get(column))))[1],mc_high=wilson(sum(get(column),na.rm=TRUE),sum(!is.na(get(column))))[2],median_runtime=median(runtime,na.rm=TRUE),bootstrap_failure_rate=mean(failure_rate,na.rm=TRUE),localization_accuracy=mean(get(switch(column,variable_family_reject="variable_correct",pair_family_reject="pair_correct",scale_family_reject="scale_correct",any_family_signal="variable_correct")),na.rm=TRUE),unavailable=sum(!is.na(error))),by=.(n,nvars,condition,calibration)]),fill=TRUE)
+fwrite(summary,file.path(output_dir,"wp10b_calibration_summary.csv"));sink(file.path(output_dir,"simtable.tex"));print(kableExtra::kable(as.data.frame(summary),format="latex",booktabs=TRUE,digits=3));sink()
+p<-ggplot(summary[diagnostic_family!="any_family_signal_descriptive"],aes(condition,rejection_rate,fill=calibration))+geom_col(position="dodge")+geom_errorbar(aes(ymin=mc_low,ymax=mc_high),position=position_dodge(.9),width=.2)+facet_grid(diagnostic_family+nvars~n,labeller=label_both)+coord_cartesian(ylim=c(0,1))+theme_bw(base_size=8)+theme(axis.text.x=element_text(angle=35,hjust=1))+labs(x=NULL,y="Family-wise rejection rate (95% binomial MC interval)",fill="Calibration")
+ggsave(file.path(output_dir,"sim.pdf"),p,width=13,height=12);packages<-c("data.table","MASS","Matrix","ggplot2","kableExtra","energy","goftest","dHSIC");writeLines(c(paste("started",started),paste("finished",Sys.time()),paste("simulation_spec",simulation_spec),paste("B",B),paste("cores",ncores),paste("seed_master",seed_master),paste("comparison conditions",paste(comparison_conditions,collapse=", ")),paste("package versions",paste(paste0(packages,"=",vapply(packages,function(x)as.character(packageVersion(x)),character(1))),collapse="; ")),"family rejection uses p_adjusted; any-family signal is descriptive only",paste("checkpoint directory",checkpoint_dir),paste("output directory",output_dir)),file.path(output_dir,"wp10b_run_metadata.txt"))

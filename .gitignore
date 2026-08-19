@@ -29,6 +29,7 @@ wp10b_run.log
 wp10b_error.log
 wp10b_run_metadata.txt
 wp10b_calibration_summary.csv
+wp10b_results_*/
 
 # WP10B smoke-run outputs: the full validated run will replace these.
 simresults.rda
