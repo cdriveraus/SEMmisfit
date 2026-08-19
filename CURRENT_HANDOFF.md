@@ -555,6 +555,8 @@ union across the three otherwise family-wise bootstrap-calibrated families is
 also not an omnibus .05 test. The old result files remain historical only and
 must not be used in manuscript prose. Its copied `wp10b_run_metadata.txt` was
 also stale (a prior smoke run) and does not describe the completed v2 artifact.
+After Git checkpoint `92b1c45`, all local v2 generated results, logs,
+checkpoints, and v3 smoke output were removed.
 
 The active v3 runner (`wp10b_refit_primary_B499_familywise_v3`) saves distinct
 variable-family, directional-pair-family, and conditional-scale-family
@@ -566,6 +568,12 @@ to `wp10b_results_wp10b_refit_primary_B499_familywise_v3/`, including a
 separate checkpoint directory, so it cannot overwrite the invalid v2 files.
 The full v3 rerun is required because v2 discarded the individual family
 outcomes needed for corrected summaries.
+
+Artifact rule: keep generated output only when it is the validated result set
+for the active package or a clearly documented before/after comparison. Use
+ignored, versioned run folders and checkpoints solely for resumability; remove
+them after validation or an abandoned run. Do not overwrite canonical
+manuscript inputs with smoke or unvalidated simulation output.
 
 ## Completed: `work_packages/WP10A_bootstrap_calibration.md`
 
